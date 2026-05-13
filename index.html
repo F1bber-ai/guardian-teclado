@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Guardián del Teclado AR</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #camera {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+      z-index: 1;
+    }
+
+    #debugCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 12;
+      pointer-events: none;
+    }
+
+    .panel {
+      position: fixed;
+      left: 50%;
+      top: 18px;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 430px;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      text-align: center;
+      z-index: 30;
+      backdrop-filter: blur(8px);
+    }
+
+    .panel h1 {
+      margin: 0 0 6px;
+      font-size: 21px;
+    }
+
+    .panel p {
+      margin: 6px 0;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 13px;
+      border: none;
+      border-radius: 14px;
+      background: white;
+      color: black;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    #status {
+      margin-top: 10px;
+      color: #ddd;
+      font-size: 13px;
+    }
+
+    .keyboard-zone {
+      position: fixed;
+      left: 50%;
+      bottom: 35px;
+      transform: translateX(-50%);
+      width: 90%;
+      height: 34%;
+      border: 4px dashed rgba(255, 50, 50, 0.95);
+      border-radius: 24px;
+      background: rgba(255, 0, 0, 0.12);
+      color: white;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-weight: bold;
+      font-size: 19px;
+      text-shadow: 0 2px 5px black;
+    }
+
+    .keyboard-zone.danger {
+      background: rgba(255, 0, 0, 0.32);
+      border-color: white;
+      box-shadow: 0 0 28px rgba(255, 0, 0, 0.9);
+    }
+
+    .keyboard-zone span {
+      background: rgba(0, 0, 0, 0.65);
+      padding: 12px 16px;
+      border-radius: 14px;
+    }
+
+    .guardian {
+      position: fixed;
+      left: 50%;
+      bottom: 42%;
+      transform: translateX(-50%);
+      font-size: 82px;
+      z-index: 18;
+      filter: drop-shadow(0 6px 10px black);
+      transition: transform 0.2s ease;
+      pointer-events: none;
+    }
+
+    .guardian.idle {
+      animation: floating 1.8s infinite ease-in-out;
+    }
+
+    @keyframes floating {
+      0% {
+        transform: translateX(-50%) translateY(0);
+      }
+      50% {
+        transform: translateX(-50%) translateY(-10px);
+      }
+      100% {
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+
+    .guardian.attack {
+      animation: swordAttack 0.9s ease-in-out;
+    }
+
+    @keyframes swordAttack {
+      0% {
+        transform: translateX(-50%) translateY(0) scale(1) rotate(0deg);
+      }
+      25% {
+        transform: translateX(-95%) translateY(30px) scale(1.25) rotate(-25deg);
+      }
+      50% {
+        transform: translateX(10%) translateY(80px) scale(1.55) rotate(25deg);
+      }
+      75% {
+        transform: translateX(-50%) translateY(25px) scale(1.2) rotate(-10deg);
+      }
+      100% {
+        transform: translateX(-50%) translateY(0) scale(1) rotate(0deg);
+      }
+    }
+
+    .slash {
+      position: fixed;
+      left: 50%;
+      bottom: 22%;
+      transform: translateX(-50%) rotate(-25deg);
+      width: 230px;
+      height: 35px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow:
+        0 0 18px white,
+        0 0 35px rgba(255, 0, 0, 0.95);
+      z-index: 19;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .slash.show {
+      animation: slashEffect 0.35s ease-out;
+    }
+
+    @keyframes slashEffect {
+      0% {
+        opacity: 0;
+        width: 60px;
+      }
+      40% {
+        opacity: 1;
+        width: 260px;
+      }
+      100% {
+        opacity: 0;
+        width: 300px;
+      }
+    }
+
+    .warning {
+      position: fixed;
+      left: 50%;
+      top: 38%;
+      transform: translateX(-50%);
+      padding: 12px 18px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.85);
+      color: #ff4b4b;
+      font-size: 24px;
+      font-weight: bold;
+      text-align: center;
+      z-index: 40;
+      display: none;
+      text-shadow: 0 2px 4px black;
+      pointer-events: none;
+    }
+
+    .warning.show {
+      display: block;
+      animation: shake 0.18s infinite;
+    }
+
+    @keyframes shake {
+      0% {
+        transform: translateX(-50%) translateY(0);
+      }
+      25% {
+        transform: translateX(-52%) translateY(-2px);
+      }
+      50% {
+        transform: translateX(-48%) translateY(2px);
+      }
+      75% {
+        transform: translateX(-52%) translateY(2px);
+      }
+      100% {
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <video id="camera" autoplay playsinline muted></video>
+  <canvas id="debugCanvas"></canvas>
+
+  <div class="panel">
+    <h1>Guardián del Teclado AR</h1>
+    <p>Activa la cámara y acerca tu dedo a la zona protegida.</p>
+
+    <button id="startCamera">
+      Activar cámara
+    </button>
+
+    <p id="status">Cámara apagada.</p>
+  </div>
+
+  <div id="guardian" class="guardian idle">
+    🐶🗡️
+  </div>
+
+  <div id="keyboardZone" class="keyboard-zone">
+    <span>
+      ZONA PROTEGIDA DEL TECLADO<br>
+      acerca el dedo aquí
+    </span>
+  </div>
+
+  <div id="slash" class="slash"></div>
+
+  <div id="warning" class="warning">
+    ¡NO TOQUES EL TECLADO!
+  </div>
+
+  <script>
+  const video = document.getElementById("camera");
+  const button = document.getElementById("startCamera");
+  const statusText = document.getElementById("status");
+
+  const keyboardZone = document.getElementById("keyboardZone");
+  const guardian = document.getElementById("guardian");
+  const slash = document.getElementById("slash");
+  const warning = document.getElementById("warning");
+
+  const canvas = document.getElementById("debugCanvas");
+  const ctx = canvas ? canvas.getContext("2d") : null;
+
+  let handLandmarker = null;
+  let cameraStarted = false;
+  let detectorReady = false;
+  let attacking = false;
+  let lastAttackTime = 0;
+  let detectionLoopStarted = false;
+
+  function resizeCanvas() {
+    if (!canvas) return;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+
+  async function startCamera() {
+    try {
+      statusText.textContent = "Solicitando permiso de cámara...";
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusText.textContent = "Tu navegador no permite usar cámara aquí. Usa Chrome con HTTPS.";
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal: "environment"
+          },
+          width: {
+            ideal: 1280
+          },
+          height: {
+            ideal: 720
+          }
+        },
+        audio: false
+      });
+
+      video.srcObject = stream;
+
+      await video.play();
+
+      cameraStarted = true;
+      button.style.display = "none";
+
+      statusText.textContent = "Cámara activa. Ahora cargaré el detector de mano...";
+
+      loadHandDetector();
+
+    } catch (error) {
+      console.error("Error al abrir cámara:", error);
+
+      if (error.name === "NotAllowedError") {
+        statusText.textContent = "Permiso denegado. Debes permitir acceso a la cámara.";
+      } else if (error.name === "NotFoundError") {
+        statusText.textContent = "No se encontró cámara disponible.";
+      } else {
+        statusText.textContent = "Error al abrir la cámara. Revisa permisos o HTTPS.";
+      }
+    }
+  }
+
+  async function loadHandDetector() {
+    try {
+      statusText.textContent = "Cámara activa. Cargando detector de mano...";
+
+      const visionModule = await import(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs"
+      );
+
+      const HandLandmarker = visionModule.HandLandmarker;
+      const FilesetResolver = visionModule.FilesetResolver;
+
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+      );
+
+      handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
+          delegate: "CPU"
+        },
+        runningMode: "VIDEO",
+        numHands: 1,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      detectorReady = true;
+
+      statusText.textContent = "Detector listo. Acerca tu dedo a la zona protegida.";
+
+      if (!detectionLoopStarted) {
+        detectionLoopStarted = true;
+        detectHands();
+      }
+
+    } catch (error) {
+      console.error("Error cargando detector de mano:", error);
+
+      statusText.textContent =
+        "La cámara funciona, pero no se pudo cargar el detector de mano. Revisa internet o prueba desde HTTPS.";
+    }
+  }
+
+  function detectHands() {
+    if (!cameraStarted || !detectorReady || !handLandmarker) {
+      requestAnimationFrame(detectHands);
+      return;
+    }
+
+    if (ctx && canvas) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    const nowInMs = performance.now();
+    const results = handLandmarker.detectForVideo(video, nowInMs);
+
+    if (results.landmarks && results.landmarks.length > 0) {
+      const hand = results.landmarks[0];
+      const indexFingerTip = hand[8];
+
+      const screenPoint = landmarkToScreen(indexFingerTip);
+
+      drawFingerPoint(screenPoint.x, screenPoint.y);
+
+      const isInsideKeyboardZone = pointInsideKeyboardZone(
+        screenPoint.x,
+        screenPoint.y
+      );
+
+      if (isInsideKeyboardZone) {
+        keyboardZone.classList.add("danger");
+        tryAttack();
+      } else {
+        keyboardZone.classList.remove("danger");
+      }
+
+    } else {
+      keyboardZone.classList.remove("danger");
+    }
+
+    requestAnimationFrame(detectHands);
+  }
+
+  function landmarkToScreen(landmark) {
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    const videoWidth = video.videoWidth || screenWidth;
+    const videoHeight = video.videoHeight || screenHeight;
+
+    const scale = Math.max(
+      screenWidth / videoWidth,
+      screenHeight / videoHeight
+    );
+
+    const displayedWidth = videoWidth * scale;
+    const displayedHeight = videoHeight * scale;
+
+    const offsetX = (screenWidth - displayedWidth) / 2;
+    const offsetY = (screenHeight - displayedHeight) / 2;
+
+    return {
+      x: landmark.x * displayedWidth + offsetX,
+      y: landmark.y * displayedHeight + offsetY
+    };
+  }
+
+  function drawFingerPoint(x, y) {
+    if (!ctx) return;
+
+    ctx.beginPath();
+    ctx.arc(x, y, 13, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.95)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+
+  function pointInsideKeyboardZone(x, y) {
+    const rect = keyboardZone.getBoundingClientRect();
+
+    return (
+      x >= rect.left &&
+      x <= rect.right &&
+      y >= rect.top &&
+      y <= rect.bottom
+    );
+  }
+
+  function tryAttack() {
+    const now = Date.now();
+    const cooldownMs = 1600;
+
+    if (now - lastAttackTime < cooldownMs) {
+      return;
+    }
+
+    lastAttackTime = now;
+    attack();
+  }
+
+  function attack() {
+    if (attacking) return;
+
+    attacking = true;
+
+    guardian.classList.remove("idle");
+    guardian.classList.remove("attack");
+    slash.classList.remove("show");
+    warning.classList.remove("show");
+
+    void guardian.offsetWidth;
+    void slash.offsetWidth;
+
+    guardian.classList.add("attack");
+    slash.classList.add("show");
+    warning.classList.add("show");
+
+    setTimeout(() => {
+      guardian.classList.remove("attack");
+      guardian.classList.add("idle");
+      slash.classList.remove("show");
+      warning.classList.remove("show");
+      attacking = false;
+    }, 1200);
+  }
+
+  button.addEventListener("click", startCamera);
+
+  keyboardZone.addEventListener("click", attack);
+  keyboardZone.addEventListener("touchstart", attack);
+</script>
+
+</body>
+</html>
