@@ -33,25 +33,16 @@
       z-index: 1;
     }
 
-    #debugCanvas {
-      position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 12;
-      pointer-events: none;
-    }
-
     .panel {
       position: fixed;
       left: 50%;
-      top: 18px;
+      top: 16px;
       transform: translateX(-50%);
-      width: 90%;
+      width: 92%;
       max-width: 430px;
       padding: 14px;
       border-radius: 18px;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.72);
       color: white;
       text-align: center;
       z-index: 30;
@@ -91,16 +82,27 @@
       font-size: 13px;
     }
 
+    .sensitivity-box {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #eee;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      margin-top: 6px;
+    }
+
     .keyboard-zone {
       position: fixed;
       left: 50%;
-      bottom: 35px;
+      bottom: 0;
       transform: translateX(-50%);
-      width: 90%;
-      height: 34%;
+      width: 96%;
+      height: 45%;
       border: 4px dashed rgba(255, 50, 50, 0.95);
-      border-radius: 24px;
-      background: rgba(255, 0, 0, 0.12);
+      border-radius: 24px 24px 0 0;
+      background: rgba(255, 0, 0, 0.16);
       color: white;
       z-index: 10;
       display: flex;
@@ -113,13 +115,13 @@
     }
 
     .keyboard-zone.danger {
-      background: rgba(255, 0, 0, 0.32);
+      background: rgba(255, 0, 0, 0.35);
       border-color: white;
-      box-shadow: 0 0 28px rgba(255, 0, 0, 0.9);
+      box-shadow: 0 0 30px rgba(255, 0, 0, 0.95);
     }
 
     .keyboard-zone span {
-      background: rgba(0, 0, 0, 0.65);
+      background: rgba(0, 0, 0, 0.68);
       padding: 12px 16px;
       border-radius: 14px;
     }
@@ -127,12 +129,11 @@
     .guardian {
       position: fixed;
       left: 50%;
-      bottom: 42%;
+      bottom: 48%;
       transform: translateX(-50%);
       font-size: 82px;
       z-index: 18;
       filter: drop-shadow(0 6px 10px black);
-      transition: transform 0.2s ease;
       pointer-events: none;
     }
 
@@ -177,12 +178,12 @@
     .slash {
       position: fixed;
       left: 50%;
-      bottom: 22%;
+      bottom: 25%;
       transform: translateX(-50%) rotate(-25deg);
       width: 230px;
       height: 35px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.95);
       box-shadow:
         0 0 18px white,
         0 0 35px rgba(255, 0, 0, 0.95);
@@ -213,11 +214,11 @@
     .warning {
       position: fixed;
       left: 50%;
-      top: 38%;
+      top: 39%;
       transform: translateX(-50%);
       padding: 12px 18px;
       border-radius: 14px;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.86);
       color: #ff4b4b;
       font-size: 24px;
       font-weight: bold;
@@ -256,17 +257,21 @@
 <body>
 
   <video id="camera" autoplay playsinline muted></video>
-  <canvas id="debugCanvas"></canvas>
 
   <div class="panel">
     <h1>Guardián del Teclado AR</h1>
-    <p>Activa la cámara y acerca tu dedo a la zona protegida.</p>
+    <p>Activa la cámara y apunta la zona roja hacia el teclado.</p>
 
     <button id="startCamera">
       Activar cámara
     </button>
 
     <p id="status">Cámara apagada.</p>
+
+    <div class="sensitivity-box">
+      Sensibilidad del movimiento
+      <input id="sensitivity" type="range" min="2" max="18" value="7">
+    </div>
   </div>
 
   <div id="guardian" class="guardian idle">
@@ -276,7 +281,7 @@
   <div id="keyboardZone" class="keyboard-zone">
     <span>
       ZONA PROTEGIDA DEL TECLADO<br>
-      acerca el dedo aquí
+      si algo se mueve aquí, ataco
     </span>
   </div>
 
@@ -287,261 +292,272 @@
   </div>
 
   <script>
-  const video = document.getElementById("camera");
-  const button = document.getElementById("startCamera");
-  const statusText = document.getElementById("status");
+    const video = document.getElementById("camera");
+    const button = document.getElementById("startCamera");
+    const statusText = document.getElementById("status");
+    const sensitivityInput = document.getElementById("sensitivity");
 
-  const keyboardZone = document.getElementById("keyboardZone");
-  const guardian = document.getElementById("guardian");
-  const slash = document.getElementById("slash");
-  const warning = document.getElementById("warning");
+    const keyboardZone = document.getElementById("keyboardZone");
+    const guardian = document.getElementById("guardian");
+    const slash = document.getElementById("slash");
+    const warning = document.getElementById("warning");
 
-  const canvas = document.getElementById("debugCanvas");
-  const ctx = canvas ? canvas.getContext("2d") : null;
+    const motionCanvas = document.createElement("canvas");
+    const motionCtx = motionCanvas.getContext("2d", {
+      willReadFrequently: true
+    });
 
-  let handLandmarker = null;
-  let cameraStarted = false;
-  let detectorReady = false;
-  let attacking = false;
-  let lastAttackTime = 0;
-  let detectionLoopStarted = false;
+    let cameraStarted = false;
+    let previousFrame = null;
+    let attacking = false;
+    let lastAttackTime = 0;
+    let calibrationFrames = 0;
 
-  function resizeCanvas() {
-    if (!canvas) return;
+    function setupMotionCanvas() {
+      motionCanvas.width = 180;
+      motionCanvas.height = Math.round(180 * window.innerHeight / window.innerWidth);
+    }
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  }
+    setupMotionCanvas();
+    window.addEventListener("resize", setupMotionCanvas);
 
-  window.addEventListener("resize", resizeCanvas);
-  resizeCanvas();
+    async function startCamera() {
+      try {
+        statusText.textContent = "Solicitando permiso de cámara...";
 
-  async function startCamera() {
-    try {
-      statusText.textContent = "Solicitando permiso de cámara...";
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          statusText.textContent = "Tu navegador no permite usar cámara aquí. Usa Chrome con HTTPS.";
+          return;
+        }
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        statusText.textContent = "Tu navegador no permite usar cámara aquí. Usa Chrome con HTTPS.";
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: {
+              ideal: "environment"
+            },
+            width: {
+              ideal: 1280
+            },
+            height: {
+              ideal: 720
+            }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        cameraStarted = true;
+        button.style.display = "none";
+        statusText.textContent = "Cámara activa. Calibrando zona protegida...";
+
+        setTimeout(() => {
+          statusText.textContent = "Listo. Acerca la mano u objeto al teclado.";
+          detectMotion();
+        }, 900);
+
+      } catch (error) {
+        console.error("Error al abrir cámara:", error);
+
+        if (error.name === "NotAllowedError") {
+          statusText.textContent = "Permiso denegado. Debes permitir acceso a la cámara.";
+        } else if (error.name === "NotFoundError") {
+          statusText.textContent = "No se encontró cámara disponible.";
+        } else {
+          statusText.textContent = "Error al abrir la cámara. Revisa permisos o HTTPS.";
+        }
+      }
+    }
+
+    function detectMotion() {
+      if (!cameraStarted || video.readyState < 2) {
+        requestAnimationFrame(detectMotion);
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal: "environment"
-          },
-          width: {
-            ideal: 1280
-          },
-          height: {
-            ideal: 720
-          }
-        },
-        audio: false
-      });
+      drawVideoCoverToCanvas();
 
-      video.srcObject = stream;
+      const zone = getKeyboardZoneInCanvas();
 
-      await video.play();
-
-      cameraStarted = true;
-      button.style.display = "none";
-
-      statusText.textContent = "Cámara activa. Ahora cargaré el detector de mano...";
-
-      loadHandDetector();
-
-    } catch (error) {
-      console.error("Error al abrir cámara:", error);
-
-      if (error.name === "NotAllowedError") {
-        statusText.textContent = "Permiso denegado. Debes permitir acceso a la cámara.";
-      } else if (error.name === "NotFoundError") {
-        statusText.textContent = "No se encontró cámara disponible.";
-      } else {
-        statusText.textContent = "Error al abrir la cámara. Revisa permisos o HTTPS.";
-      }
-    }
-  }
-
-  async function loadHandDetector() {
-    try {
-      statusText.textContent = "Cámara activa. Cargando detector de mano...";
-
-      const visionModule = await import(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/vision_bundle.mjs"
-      );
-
-      const HandLandmarker = visionModule.HandLandmarker;
-      const FilesetResolver = visionModule.FilesetResolver;
-
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
-      );
-
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
-          delegate: "CPU"
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-        minHandDetectionConfidence: 0.5,
-        minHandPresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5
-      });
-
-      detectorReady = true;
-
-      statusText.textContent = "Detector listo. Acerca tu dedo a la zona protegida.";
-
-      if (!detectionLoopStarted) {
-        detectionLoopStarted = true;
-        detectHands();
+      if (zone.width <= 0 || zone.height <= 0) {
+        requestAnimationFrame(detectMotion);
+        return;
       }
 
-    } catch (error) {
-      console.error("Error cargando detector de mano:", error);
-
-      statusText.textContent =
-        "La cámara funciona, pero no se pudo cargar el detector de mano. Revisa internet o prueba desde HTTPS.";
-    }
-  }
-
-  function detectHands() {
-    if (!cameraStarted || !detectorReady || !handLandmarker) {
-      requestAnimationFrame(detectHands);
-      return;
-    }
-
-    if (ctx && canvas) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    const nowInMs = performance.now();
-    const results = handLandmarker.detectForVideo(video, nowInMs);
-
-    if (results.landmarks && results.landmarks.length > 0) {
-      const hand = results.landmarks[0];
-      const indexFingerTip = hand[8];
-
-      const screenPoint = landmarkToScreen(indexFingerTip);
-
-      drawFingerPoint(screenPoint.x, screenPoint.y);
-
-      const isInsideKeyboardZone = pointInsideKeyboardZone(
-        screenPoint.x,
-        screenPoint.y
+      const currentFrame = motionCtx.getImageData(
+        zone.x,
+        zone.y,
+        zone.width,
+        zone.height
       );
 
-      if (isInsideKeyboardZone) {
+      if (!previousFrame) {
+        previousFrame = currentFrame;
+        requestAnimationFrame(detectMotion);
+        return;
+      }
+
+      const motionPercent = calculateMotionPercent(
+        previousFrame.data,
+        currentFrame.data
+      );
+
+      previousFrame = currentFrame;
+
+      const sensitivity = Number(sensitivityInput.value);
+      const threshold = sensitivity / 100;
+
+      if (calibrationFrames < 12) {
+        calibrationFrames++;
+        statusText.textContent = "Calibrando movimiento...";
+        requestAnimationFrame(detectMotion);
+        return;
+      }
+
+      if (motionPercent > threshold) {
         keyboardZone.classList.add("danger");
+        statusText.textContent =
+          "Movimiento detectado en zona protegida: " +
+          Math.round(motionPercent * 100) +
+          "%";
+
         tryAttack();
       } else {
         keyboardZone.classList.remove("danger");
+        statusText.textContent =
+          "Vigilando teclado. Movimiento: " +
+          Math.round(motionPercent * 100) +
+          "%";
       }
 
-    } else {
-      keyboardZone.classList.remove("danger");
+      requestAnimationFrame(detectMotion);
     }
 
-    requestAnimationFrame(detectHands);
-  }
+    function drawVideoCoverToCanvas() {
+      const canvasWidth = motionCanvas.width;
+      const canvasHeight = motionCanvas.height;
 
-  function landmarkToScreen(landmark) {
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
+      const videoWidth = video.videoWidth;
+      const videoHeight = video.videoHeight;
 
-    const videoWidth = video.videoWidth || screenWidth;
-    const videoHeight = video.videoHeight || screenHeight;
+      if (!videoWidth || !videoHeight) return;
 
-    const scale = Math.max(
-      screenWidth / videoWidth,
-      screenHeight / videoHeight
-    );
+      const videoRatio = videoWidth / videoHeight;
+      const canvasRatio = canvasWidth / canvasHeight;
 
-    const displayedWidth = videoWidth * scale;
-    const displayedHeight = videoHeight * scale;
+      let sx = 0;
+      let sy = 0;
+      let sw = videoWidth;
+      let sh = videoHeight;
 
-    const offsetX = (screenWidth - displayedWidth) / 2;
-    const offsetY = (screenHeight - displayedHeight) / 2;
+      if (videoRatio > canvasRatio) {
+        sh = videoHeight;
+        sw = sh * canvasRatio;
+        sx = (videoWidth - sw) / 2;
+      } else {
+        sw = videoWidth;
+        sh = sw / canvasRatio;
+        sy = (videoHeight - sh) / 2;
+      }
 
-    return {
-      x: landmark.x * displayedWidth + offsetX,
-      y: landmark.y * displayedHeight + offsetY
-    };
-  }
-
-  function drawFingerPoint(x, y) {
-    if (!ctx) return;
-
-    ctx.beginPath();
-    ctx.arc(x, y, 13, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(x, y, 22, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255, 0, 0, 0.95)";
-    ctx.lineWidth = 4;
-    ctx.stroke();
-  }
-
-  function pointInsideKeyboardZone(x, y) {
-    const rect = keyboardZone.getBoundingClientRect();
-
-    return (
-      x >= rect.left &&
-      x <= rect.right &&
-      y >= rect.top &&
-      y <= rect.bottom
-    );
-  }
-
-  function tryAttack() {
-    const now = Date.now();
-    const cooldownMs = 1600;
-
-    if (now - lastAttackTime < cooldownMs) {
-      return;
+      motionCtx.drawImage(
+        video,
+        sx,
+        sy,
+        sw,
+        sh,
+        0,
+        0,
+        canvasWidth,
+        canvasHeight
+      );
     }
 
-    lastAttackTime = now;
-    attack();
-  }
+    function getKeyboardZoneInCanvas() {
+      const rect = keyboardZone.getBoundingClientRect();
 
-  function attack() {
-    if (attacking) return;
+      const scaleX = motionCanvas.width / window.innerWidth;
+      const scaleY = motionCanvas.height / window.innerHeight;
 
-    attacking = true;
+      return {
+        x: Math.max(0, Math.floor(rect.left * scaleX)),
+        y: Math.max(0, Math.floor(rect.top * scaleY)),
+        width: Math.min(
+          motionCanvas.width,
+          Math.floor(rect.width * scaleX)
+        ),
+        height: Math.min(
+          motionCanvas.height,
+          Math.floor(rect.height * scaleY)
+        )
+      };
+    }
 
-    guardian.classList.remove("idle");
-    guardian.classList.remove("attack");
-    slash.classList.remove("show");
-    warning.classList.remove("show");
+    function calculateMotionPercent(previous, current) {
+      let changedPixels = 0;
+      let totalPixels = 0;
 
-    void guardian.offsetWidth;
-    void slash.offsetWidth;
+      for (let i = 0; i < current.length; i += 16) {
+        const rDiff = Math.abs(current[i] - previous[i]);
+        const gDiff = Math.abs(current[i + 1] - previous[i + 1]);
+        const bDiff = Math.abs(current[i + 2] - previous[i + 2]);
 
-    guardian.classList.add("attack");
-    slash.classList.add("show");
-    warning.classList.add("show");
+        const diff = rDiff + gDiff + bDiff;
 
-    setTimeout(() => {
+        if (diff > 70) {
+          changedPixels++;
+        }
+
+        totalPixels++;
+      }
+
+      return changedPixels / totalPixels;
+    }
+
+    function tryAttack() {
+      const now = Date.now();
+      const cooldownMs = 1400;
+
+      if (now - lastAttackTime < cooldownMs) {
+        return;
+      }
+
+      lastAttackTime = now;
+      attack();
+    }
+
+    function attack() {
+      if (attacking) return;
+
+      attacking = true;
+
+      guardian.classList.remove("idle");
       guardian.classList.remove("attack");
-      guardian.classList.add("idle");
       slash.classList.remove("show");
       warning.classList.remove("show");
-      attacking = false;
-    }, 1200);
-  }
 
-  button.addEventListener("click", startCamera);
+      void guardian.offsetWidth;
+      void slash.offsetWidth;
 
-  keyboardZone.addEventListener("click", attack);
-  keyboardZone.addEventListener("touchstart", attack);
-</script>
+      guardian.classList.add("attack");
+      slash.classList.add("show");
+      warning.classList.add("show");
+
+      setTimeout(() => {
+        guardian.classList.remove("attack");
+        guardian.classList.add("idle");
+        slash.classList.remove("show");
+        warning.classList.remove("show");
+        attacking = false;
+      }, 1100);
+    }
+
+    button.addEventListener("click", startCamera);
+
+    keyboardZone.addEventListener("click", attack);
+    keyboardZone.addEventListener("touchstart", attack);
+  </script>
 
 </body>
 </html>
