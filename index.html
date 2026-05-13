@@ -112,6 +112,7 @@
       font-weight: bold;
       font-size: 19px;
       text-shadow: 0 2px 5px black;
+      pointer-events: none;
     }
 
     .keyboard-zone.danger {
@@ -292,271 +293,295 @@
   </div>
 
   <script>
-    const video = document.getElementById("camera");
-    const button = document.getElementById("startCamera");
-    const statusText = document.getElementById("status");
-    const sensitivityInput = document.getElementById("sensitivity");
+  const video = document.getElementById("camera");
+  const button = document.getElementById("startCamera");
+  const statusText = document.getElementById("status");
+  const sensitivityInput = document.getElementById("sensitivity");
 
-    const keyboardZone = document.getElementById("keyboardZone");
-    const guardian = document.getElementById("guardian");
-    const slash = document.getElementById("slash");
-    const warning = document.getElementById("warning");
+  const keyboardZone = document.getElementById("keyboardZone");
+  const guardian = document.getElementById("guardian");
+  const slash = document.getElementById("slash");
+  const warning = document.getElementById("warning");
 
-    const motionCanvas = document.createElement("canvas");
-    const motionCtx = motionCanvas.getContext("2d", {
-      willReadFrequently: true
-    });
+  const motionCanvas = document.createElement("canvas");
+  const motionCtx = motionCanvas.getContext("2d", {
+    willReadFrequently: true
+  });
 
-    let cameraStarted = false;
-    let previousFrame = null;
-    let attacking = false;
-    let lastAttackTime = 0;
-    let calibrationFrames = 0;
+  let cameraStarted = false;
+  let baseFrame = null;
+  let attacking = false;
+  let lastAttackTime = 0;
+  let isCalibrating = false;
 
-    function setupMotionCanvas() {
-      motionCanvas.width = 180;
-      motionCanvas.height = Math.round(180 * window.innerHeight / window.innerWidth);
-    }
+  function setupMotionCanvas() {
+    motionCanvas.width = 220;
+    motionCanvas.height = Math.round(220 * window.innerHeight / window.innerWidth);
+  }
 
-    setupMotionCanvas();
-    window.addEventListener("resize", setupMotionCanvas);
+  setupMotionCanvas();
+  window.addEventListener("resize", setupMotionCanvas);
 
-    async function startCamera() {
-      try {
-        statusText.textContent = "Solicitando permiso de cámara...";
+  async function startCamera() {
+    try {
+      statusText.textContent = "Solicitando permiso de cámara...";
 
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          statusText.textContent = "Tu navegador no permite usar cámara aquí. Usa Chrome con HTTPS.";
-          return;
-        }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusText.textContent = "Tu navegador no permite usar cámara aquí. Usa Chrome con HTTPS.";
+        return;
+      }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: {
-              ideal: "environment"
-            },
-            width: {
-              ideal: 1280
-            },
-            height: {
-              ideal: 720
-            }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal: "environment"
           },
-          audio: false
-        });
+          width: {
+            ideal: 1280
+          },
+          height: {
+            ideal: 720
+          }
+        },
+        audio: false
+      });
 
-        video.srcObject = stream;
-        await video.play();
+      video.srcObject = stream;
+      await video.play();
 
-        cameraStarted = true;
-        button.style.display = "none";
-        statusText.textContent = "Cámara activa. Calibrando zona protegida...";
+      cameraStarted = true;
+      button.style.display = "none";
 
-        setTimeout(() => {
-          statusText.textContent = "Listo. Acerca la mano u objeto al teclado.";
-          detectMotion();
-        }, 900);
-
-      } catch (error) {
-        console.error("Error al abrir cámara:", error);
-
-        if (error.name === "NotAllowedError") {
-          statusText.textContent = "Permiso denegado. Debes permitir acceso a la cámara.";
-        } else if (error.name === "NotFoundError") {
-          statusText.textContent = "No se encontró cámara disponible.";
-        } else {
-          statusText.textContent = "Error al abrir la cámara. Revisa permisos o HTTPS.";
-        }
-      }
-    }
-
-    function detectMotion() {
-      if (!cameraStarted || video.readyState < 2) {
-        requestAnimationFrame(detectMotion);
-        return;
-      }
-
-      drawVideoCoverToCanvas();
-
-      const zone = getKeyboardZoneInCanvas();
-
-      if (zone.width <= 0 || zone.height <= 0) {
-        requestAnimationFrame(detectMotion);
-        return;
-      }
-
-      const currentFrame = motionCtx.getImageData(
-        zone.x,
-        zone.y,
-        zone.width,
-        zone.height
-      );
-
-      if (!previousFrame) {
-        previousFrame = currentFrame;
-        requestAnimationFrame(detectMotion);
-        return;
-      }
-
-      const motionPercent = calculateMotionPercent(
-        previousFrame.data,
-        currentFrame.data
-      );
-
-      previousFrame = currentFrame;
-
-      const sensitivity = Number(sensitivityInput.value);
-      const threshold = sensitivity / 100;
-
-      if (calibrationFrames < 12) {
-        calibrationFrames++;
-        statusText.textContent = "Calibrando movimiento...";
-        requestAnimationFrame(detectMotion);
-        return;
-      }
-
-      if (motionPercent > threshold) {
-        keyboardZone.classList.add("danger");
-        statusText.textContent =
-          "Movimiento detectado en zona protegida: " +
-          Math.round(motionPercent * 100) +
-          "%";
-
-        tryAttack();
-      } else {
-        keyboardZone.classList.remove("danger");
-        statusText.textContent =
-          "Vigilando teclado. Movimiento: " +
-          Math.round(motionPercent * 100) +
-          "%";
-      }
-
-      requestAnimationFrame(detectMotion);
-    }
-
-    function drawVideoCoverToCanvas() {
-      const canvasWidth = motionCanvas.width;
-      const canvasHeight = motionCanvas.height;
-
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
-
-      if (!videoWidth || !videoHeight) return;
-
-      const videoRatio = videoWidth / videoHeight;
-      const canvasRatio = canvasWidth / canvasHeight;
-
-      let sx = 0;
-      let sy = 0;
-      let sw = videoWidth;
-      let sh = videoHeight;
-
-      if (videoRatio > canvasRatio) {
-        sh = videoHeight;
-        sw = sh * canvasRatio;
-        sx = (videoWidth - sw) / 2;
-      } else {
-        sw = videoWidth;
-        sh = sw / canvasRatio;
-        sy = (videoHeight - sh) / 2;
-      }
-
-      motionCtx.drawImage(
-        video,
-        sx,
-        sy,
-        sw,
-        sh,
-        0,
-        0,
-        canvasWidth,
-        canvasHeight
-      );
-    }
-
-    function getKeyboardZoneInCanvas() {
-      const rect = keyboardZone.getBoundingClientRect();
-
-      const scaleX = motionCanvas.width / window.innerWidth;
-      const scaleY = motionCanvas.height / window.innerHeight;
-
-      return {
-        x: Math.max(0, Math.floor(rect.left * scaleX)),
-        y: Math.max(0, Math.floor(rect.top * scaleY)),
-        width: Math.min(
-          motionCanvas.width,
-          Math.floor(rect.width * scaleX)
-        ),
-        height: Math.min(
-          motionCanvas.height,
-          Math.floor(rect.height * scaleY)
-        )
-      };
-    }
-
-    function calculateMotionPercent(previous, current) {
-      let changedPixels = 0;
-      let totalPixels = 0;
-
-      for (let i = 0; i < current.length; i += 16) {
-        const rDiff = Math.abs(current[i] - previous[i]);
-        const gDiff = Math.abs(current[i + 1] - previous[i + 1]);
-        const bDiff = Math.abs(current[i + 2] - previous[i + 2]);
-
-        const diff = rDiff + gDiff + bDiff;
-
-        if (diff > 70) {
-          changedPixels++;
-        }
-
-        totalPixels++;
-      }
-
-      return changedPixels / totalPixels;
-    }
-
-    function tryAttack() {
-      const now = Date.now();
-      const cooldownMs = 1400;
-
-      if (now - lastAttackTime < cooldownMs) {
-        return;
-      }
-
-      lastAttackTime = now;
-      attack();
-    }
-
-    function attack() {
-      if (attacking) return;
-
-      attacking = true;
-
-      guardian.classList.remove("idle");
-      guardian.classList.remove("attack");
-      slash.classList.remove("show");
-      warning.classList.remove("show");
-
-      void guardian.offsetWidth;
-      void slash.offsetWidth;
-
-      guardian.classList.add("attack");
-      slash.classList.add("show");
-      warning.classList.add("show");
+      statusText.textContent = "Cámara activa. Apunta la zona roja al teclado y no muevas el celular...";
 
       setTimeout(() => {
-        guardian.classList.remove("attack");
-        guardian.classList.add("idle");
-        slash.classList.remove("show");
-        warning.classList.remove("show");
-        attacking = false;
-      }, 1100);
+        calibrateKeyboardZone();
+        detectIntrusion();
+      }, 1500);
+
+    } catch (error) {
+      console.error("Error al abrir cámara:", error);
+
+      if (error.name === "NotAllowedError") {
+        statusText.textContent = "Permiso denegado. Debes permitir acceso a la cámara.";
+      } else if (error.name === "NotFoundError") {
+        statusText.textContent = "No se encontró cámara disponible.";
+      } else {
+        statusText.textContent = "Error al abrir la cámara. Revisa permisos o HTTPS.";
+      }
+    }
+  }
+
+  function calibrateKeyboardZone() {
+    if (!cameraStarted || video.readyState < 2) return;
+
+    isCalibrating = true;
+
+    drawVideoCoverToCanvas();
+
+    const zone = getKeyboardZoneInCanvas();
+
+    baseFrame = motionCtx.getImageData(
+      zone.x,
+      zone.y,
+      zone.width,
+      zone.height
+    );
+
+    isCalibrating = false;
+
+    statusText.textContent = "Zona calibrada. Ahora si algo invade el teclado, ataco.";
+  }
+
+  function detectIntrusion() {
+    if (!cameraStarted || video.readyState < 2) {
+      requestAnimationFrame(detectIntrusion);
+      return;
     }
 
-    button.addEventListener("click", startCamera);
+    if (!baseFrame || isCalibrating) {
+      requestAnimationFrame(detectIntrusion);
+      return;
+    }
 
-    keyboardZone.addEventListener("click", attack);
-    keyboardZone.addEventListener("touchstart", attack);
+    drawVideoCoverToCanvas();
+
+    const zone = getKeyboardZoneInCanvas();
+
+    const currentFrame = motionCtx.getImageData(
+      zone.x,
+      zone.y,
+      zone.width,
+      zone.height
+    );
+
+    const intrusionPercent = calculateChangePercent(
+      baseFrame.data,
+      currentFrame.data
+    );
+
+    const sensitivity = Number(sensitivityInput.value);
+
+    /*
+      Menor sensibilidad = necesita menos cambio para atacar.
+      Mayor sensibilidad = necesita más cambio para atacar.
+    */
+    const threshold = sensitivity / 100;
+
+    if (intrusionPercent > threshold) {
+      keyboardZone.classList.add("danger");
+
+      statusText.textContent =
+        "¡Invasión detectada en el teclado! Cambio: " +
+        Math.round(intrusionPercent * 100) +
+        "%";
+
+      tryAttack();
+
+    } else {
+      keyboardZone.classList.remove("danger");
+
+      statusText.textContent =
+        "Vigilando teclado. Cambio: " +
+        Math.round(intrusionPercent * 100) +
+        "%";
+    }
+
+    requestAnimationFrame(detectIntrusion);
+  }
+
+  function drawVideoCoverToCanvas() {
+    const canvasWidth = motionCanvas.width;
+    const canvasHeight = motionCanvas.height;
+
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+
+    if (!videoWidth || !videoHeight) return;
+
+    const videoRatio = videoWidth / videoHeight;
+    const canvasRatio = canvasWidth / canvasHeight;
+
+    let sx = 0;
+    let sy = 0;
+    let sw = videoWidth;
+    let sh = videoHeight;
+
+    if (videoRatio > canvasRatio) {
+      sh = videoHeight;
+      sw = sh * canvasRatio;
+      sx = (videoWidth - sw) / 2;
+    } else {
+      sw = videoWidth;
+      sh = sw / canvasRatio;
+      sy = (videoHeight - sh) / 2;
+    }
+
+    motionCtx.drawImage(
+      video,
+      sx,
+      sy,
+      sw,
+      sh,
+      0,
+      0,
+      canvasWidth,
+      canvasHeight
+    );
+  }
+
+  function getKeyboardZoneInCanvas() {
+    const rect = keyboardZone.getBoundingClientRect();
+
+    const scaleX = motionCanvas.width / window.innerWidth;
+    const scaleY = motionCanvas.height / window.innerHeight;
+
+    const x = Math.max(0, Math.floor(rect.left * scaleX));
+    const y = Math.max(0, Math.floor(rect.top * scaleY));
+
+    const width = Math.min(
+      motionCanvas.width - x,
+      Math.floor(rect.width * scaleX)
+    );
+
+    const height = Math.min(
+      motionCanvas.height - y,
+      Math.floor(rect.height * scaleY)
+    );
+
+    return {
+      x,
+      y,
+      width,
+      height
+    };
+  }
+
+  function calculateChangePercent(base, current) {
+    let changedPixels = 0;
+    let totalPixels = 0;
+
+    for (let i = 0; i < current.length; i += 20) {
+      const rDiff = Math.abs(current[i] - base[i]);
+      const gDiff = Math.abs(current[i + 1] - base[i + 1]);
+      const bDiff = Math.abs(current[i + 2] - base[i + 2]);
+
+      const diff = rDiff + gDiff + bDiff;
+
+      if (diff > 65) {
+        changedPixels++;
+      }
+
+      totalPixels++;
+    }
+
+    return changedPixels / totalPixels;
+  }
+
+  function tryAttack() {
+    const now = Date.now();
+    const cooldownMs = 1500;
+
+    if (now - lastAttackTime < cooldownMs) {
+      return;
+    }
+
+    lastAttackTime = now;
+    attack();
+  }
+
+  function attack() {
+    if (attacking) return;
+
+    attacking = true;
+
+    guardian.classList.remove("idle");
+    guardian.classList.remove("attack");
+    slash.classList.remove("show");
+    warning.classList.remove("show");
+
+    void guardian.offsetWidth;
+    void slash.offsetWidth;
+
+    guardian.classList.add("attack");
+    slash.classList.add("show");
+    warning.classList.add("show");
+
+    setTimeout(() => {
+      guardian.classList.remove("attack");
+      guardian.classList.add("idle");
+      slash.classList.remove("show");
+      warning.classList.remove("show");
+      attacking = false;
+    }, 1100);
+  }
+
+  sensitivityInput.addEventListener("input", () => {
+    statusText.textContent = "Sensibilidad ajustada. Mantén el celular quieto.";
+  });
+
+  button.addEventListener("click", startCamera);
+</script>
   </script>
 
 </body>
