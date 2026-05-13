@@ -72,6 +72,12 @@
       cursor: pointer;
     }
 
+    .secondary-button {
+    background: rgba(255, 255, 255, 0.18);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    }
+
     button:active {
       transform: scale(0.97);
     }
@@ -267,6 +273,10 @@
       Activar cámara
     </button>
 
+    <button id="recalibrateButton" class="secondary-button" style="display: none;">
+        Recalibrar zona
+    </button>
+
     <p id="status">Cámara apagada.</p>
 
     <div class="sensitivity-box">
@@ -295,6 +305,7 @@
   <script>
   const video = document.getElementById("camera");
   const button = document.getElementById("startCamera");
+  const recalibrateButton = document.getElementById("recalibrateButton");
   const statusText = document.getElementById("status");
   const sensitivityInput = document.getElementById("sensitivity");
 
@@ -351,13 +362,11 @@
 
       cameraStarted = true;
       button.style.display = "none";
+      recalibrateButton.style.display = "block";
 
-      statusText.textContent = "Cámara activa. Apunta la zona roja al teclado y no muevas el celular...";
+      await startCalibrationCountdown();
 
-      setTimeout(() => {
-        calibrateKeyboardZone();
-        detectIntrusion();
-      }, 1500);
+      detectIntrusion();
 
     } catch (error) {
       console.error("Error al abrir cámara:", error);
@@ -372,20 +381,43 @@
     }
   }
 
+  async function startCalibrationCountdown() {
+    isCalibrating = true;
+    keyboardZone.classList.remove("danger");
+
+    statusText.textContent = "Apunta la zona roja al teclado. Calibrando en 3...";
+    await wait(700);
+
+    statusText.textContent = "Mantén el celular quieto. Calibrando en 2...";
+    await wait(700);
+ 
+    statusText.textContent = "No metas la mano todavía. Calibrando en 1...";
+    await wait(700);
+
+    calibrateKeyboardZone();
+
+    statusText.textContent = "Zona calibrada. Ahora si algo invade el teclado, ataco.";
+  }
+
+  function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   function calibrateKeyboardZone() {
     if (!cameraStarted || video.readyState < 2) return;
 
     isCalibrating = true;
+    keyboardZone.classList.remove("danger");
 
     drawVideoCoverToCanvas();
 
     const zone = getKeyboardZoneInCanvas();
 
     baseFrame = motionCtx.getImageData(
-      zone.x,
-      zone.y,
-      zone.width,
-      zone.height
+        zone.x,
+        zone.y,
+        zone.width,
+        zone.height
     );
 
     isCalibrating = false;
@@ -581,6 +613,9 @@
   });
 
   button.addEventListener("click", startCamera);
+  recalibrateButton.addEventListener("click", async () => {
+  await startCalibrationCountdown();
+});
 </script>
   </script>
 
