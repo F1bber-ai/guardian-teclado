@@ -325,6 +325,10 @@
   let lastAttackTime = 0;
   let isCalibrating = false;
 
+  let intrusionActive = false; 
+  let intrusionFrames = 0;
+  let clearFrames = 0;
+
   function setupMotionCanvas() {
     motionCanvas.width = 220;
     motionCanvas.height = Math.round(220 * window.innerHeight / window.innerWidth);
@@ -407,6 +411,10 @@
     if (!cameraStarted || video.readyState < 2) return;
 
     isCalibrating = true;
+    intrusionActive = false;
+    intrusionFrames = 0;
+    clearFrames = 0;
+    
     keyboardZone.classList.remove("danger");
 
     drawVideoCoverToCanvas();
@@ -460,23 +468,45 @@
     */
     const threshold = sensitivity / 100;
 
-    if (intrusionPercent > threshold) {
+    const isIntrusion = intrusionPercent > threshold;
+
+    if (isIntrusion) {
+      intrusionFrames++;
+      clearFrames = 0;
+
       keyboardZone.classList.add("danger");
 
       statusText.textContent =
-        "¡Invasión detectada en el teclado! Cambio: " +
+        "Objeto dentro de la zona. Cambio: " +
         Math.round(intrusionPercent * 100) +
         "%";
 
-      tryAttack();
+      /*
+        Solo ataca cuando la invasión acaba de comenzar.
+        Si el objeto sigue dentro, no repite el ataque.
+      */
+      if (!intrusionActive && intrusionFrames >= 4) {
+        intrusionActive = true;
+        tryAttack();
+      }
 
     } else {
-      keyboardZone.classList.remove("danger");
+      clearFrames++;
+      intrusionFrames = 0;
 
       statusText.textContent =
         "Vigilando teclado. Cambio: " +
         Math.round(intrusionPercent * 100) +
         "%";
+
+        /*
+            Solo se rearma cuando la zona estuvo limpia
+            varios frames seguidos.
+        */
+      if (clearFrames >= 10) {
+            intrusionActive = false;
+            keyboardZone.classList.remove("danger");
+      }
     }
 
     requestAnimationFrame(detectIntrusion);
